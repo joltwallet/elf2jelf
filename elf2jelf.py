@@ -18,6 +18,7 @@ import bitstruct as bs
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 from elf32_structs import \
+        index_strtab, \
         Elf32_Ehdr, Elf32_Shdr, Elf32_Sym, Elf32_Rela
 
 # Debugging Utilities
@@ -73,16 +74,35 @@ def main():
     with open(args.input_elf, 'rb') as f:
         # Reads in the binary contents to an object of type 'bytes'
         # A 'bytes' object shares many properties with a conventional string
-        elf_content = f.read()
-    log.info("Read in %d bytes" % len(elf_content))
+        elf_contents = f.read()
+    log.info("Read in %d bytes" % len(elf_contents))
 
     #####################
     # Unpack ELF Header #
     #####################
-    ehdr = Elf32_Ehdr.unpack(elf_content[0:])
-    pdb.set_trace()
+    assert( Elf32_Ehdr.size_bytes() == 52 )
+    ehdr = Elf32_Ehdr.unpack(elf_contents[0:])
     validate_esp32_ehdr(ehdr)
+    log.debug("Number of Sections: %d" % ehdr.e_shnum)
+    log.debug("SectionHeader Offset: %d" % ehdr.e_shoff)
 
+    ##########################################
+    # Read SectionHeaderTable Section Header #
+    ##########################################
+    assert( Elf32_Shdr.size_bytes() == 40 )
+    offset = ehdr.e_shoff + ehdr.e_shstrndx * Elf32_Shdr.size_bytes()
+    shstrtab_shdr = Elf32_Shdr.unpack(elf_contents[offset:])
+    # Read the actual SectionHeaderTable
+    shstrtab = elf_contents[shstrtab_shdr.sh_offset:
+            shstrtab_shdr.sh_offset+shstrtab_shdr.sh_size]
+    # for some reason, this is incorrect
+    shstrtab_name = index_strtab(shstrtab, shstrtab_shdr.sh_name)
+    assert( shstrtab_name == b'.shstrtab' )
+
+    ####################
+    # Read The .strtab #
+    ####################
+    pdb.set_trace()
     log.info("Complete!")
 
 if __name__=='__main__':
