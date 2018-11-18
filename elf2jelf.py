@@ -46,8 +46,6 @@ from jelf_structs import \
 # Debugging Utilities
 import ipdb as pdb
 
-_JELF_MAJOR_VERSION = 0
-_JELF_MINOR_VERSION = 1
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -96,6 +94,18 @@ def main():
     else:
         raise("Invalid Logging Verbosity")
 
+    ##################################
+    # Read in the JoltOS Export List #
+    ##################################
+    with open('export_list.txt', 'r') as f:
+        version_header = f.readline().rstrip()
+        version_name, version_str = version_header.split(' ')
+        assert(version_name == 'VERSION')
+        _JELF_VERSION_MAJOR, _JELF_VERSION_MINOR = version_str.split('.')
+        _JELF_VERSION_MAJOR = int(_JELF_VERSION_MAJOR)
+        _JELF_VERSION_MINOR = int(_JELF_VERSION_MINOR)
+        export_list = [line.rstrip() for line in f]
+
     ####################
     # Read In ELF File #
     ####################
@@ -138,16 +148,26 @@ def main():
     Jelf_Ehdr.size_bytes()
 
     elf32_shdrs = []
-    elf32_symtab_index = None
-    elf32_strtab_index = None
+    elf32_symtab = None
+    elf32_symtab_shdr = None
+    elf32_strtab = None
+    elf32_strtab_shdr = None
     for i in range(0, ehdr.e_shnum):
         offset = ehdr.e_shoff + i * Elf32_Shdr.size_bytes()
-        elf32_shdrs.append( Elf32_Shdr.unpack(elf_contents[offset:]) )
-        shdr_name = index_strtab(shstrtab, elf32_shdrs[-1].sh_name)
-        if( shdr_name == '.symtab' ):
-            elf32_symtab_index = i
-        elif( shdr_name == '.strtab' ):
-            elf32_strtab_index = i
+        elf32_shdr = Elf32_Shdr.unpack(elf_contents[offset:])
+        shdr_name = index_strtab(shstrtab, elf32_shdr.sh_name)
+        log.debug("Read in Section Header %d. %s " % (i, shdr_name))
+        if( shdr_name == b'.symtab' ):
+            elf32_symtab_shdr = elf32_shdr
+            elf32_shdrs.append( elf32_shdr )
+        elif( shdr_name == b'.strtab' ):
+            elf32_strtab_shdr = elf32_shdr
+            # we're stripping the strtab, so don't add it to the list
+            elf32_strtab = elf_contents[elf32_strtab_shdr.sh_offset:
+                    elf32_strtab_shdr.sh_offset+elf32_strtab_shdr.sh_size]
+        else:
+            elf32_shdrs.append( elf32_shdr )
+    pdb.set_trace()
 
     # Convert all sections to JELF equivalents
     jelf_shdrs_bytes = []
