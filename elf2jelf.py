@@ -149,10 +149,6 @@ def main():
     assert( shstrtab_name == b'.shstrtab' )
     del(offset)
 
-    ####################
-    # Read The .strtab #
-    ####################
-
     ################################
     # Iterate Through All Sections #
     ################################
@@ -226,16 +222,13 @@ def main():
             jelf_shdr_d['sh_info']      = elf32_shdr.sh_info
 
         jelf_shdrs.append(jelf_shdr_d)
-        # todo: do this AFTER we recompute offsets
 
     ###########################################################
     # Sort the offsets to improve locality caching on loading #
     ###########################################################
-    '''
     elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs = (
             list(t) for t in zip(*sorted(zip(
         elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs))))
-    '''
 
     ###########################################
     # Convert the ELF32 symtab to JELF Format #
@@ -368,8 +361,6 @@ def main():
             raise("Overflow Detected")
         jelf_ptr = new_jelf_ptr
 
-    # todo:Have to relocate all sections that are used during exec
-
     ##################################################
     # Write Section Header Table to end of JELF File #
     ##################################################
@@ -389,8 +380,19 @@ def main():
     #####################
     # Write JELF Header #
     #####################
-    jelf_header_d = OrderedDict()
     #todo
+    if False:
+        jelf_header_d = OrderedDict()
+        jelf_Ehdr_d['e_ident']          = '\x7fJELF\x00'
+        jelf_Ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
+        jelf_Ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
+        jelf_Ehdr_d['e_entry_offset']   = 'u32'
+        jelf_Ehdr_d['e_shnum']          = 'u16'
+        jelf_Ehdr_d['e_coin_purpose']   = 'u32'
+        jelf_Ehdr_d['e_coin_path']      = 'u32'
+        jelf_Ehdr_d['e_bip32key']  = 't%d' % (32*8)
+        jelf_Ehdr_d['e_signature']  = b'\x00'*32 # Placeholder
+
 
     #############################
     # Write JELF binary to file #
