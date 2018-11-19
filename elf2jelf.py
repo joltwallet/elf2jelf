@@ -16,6 +16,8 @@ ELF File Structure that esp-idf creates:
 
 The Section Header Table is a Section like any other
    * Theres a pointer to the Section Header Table Section in the ELF Header.
+
+Assumes symtab is at the end (ignoring strtab and shstrtab)
 '''
 
 __author__  = 'Brian Pugh'
@@ -29,6 +31,7 @@ import logging
 from collections import OrderedDict, namedtuple
 import bitstruct as bs
 from common_structs import index_strtab
+import math
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
@@ -46,6 +49,8 @@ from jelf_structs import \
 # Debugging Utilities
 import ipdb as pdb
 
+def align(x, base=4):
+    return int( base * math.ceil(float(x)/base))
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -116,6 +121,9 @@ def main():
         elf_contents = f.read()
     log.info("Read in %d bytes" % len(elf_contents))
 
+    # Allocate space for JELF contents, this is larger than necessary
+    jelf_contents = bytearray(len(elf_contents))
+
     #####################
     # Unpack ELF Header #
     #####################
@@ -148,30 +156,40 @@ def main():
     Jelf_Ehdr.size_bytes()
 
     elf32_shdrs = []
+    elf32_shdr_names = []
     elf32_symtab = None
     elf32_symtab_shdr = None
     elf32_strtab = None
     elf32_strtab_shdr = None
     for i in range(0, ehdr.e_shnum):
+        # The Shdr Table is wayyyyyy at the end
         offset = ehdr.e_shoff + i * Elf32_Shdr.size_bytes()
         elf32_shdr = Elf32_Shdr.unpack(elf_contents[offset:])
         shdr_name = index_strtab(shstrtab, elf32_shdr.sh_name)
         log.debug("Read in Section Header %d. %s " % (i, shdr_name))
         if( shdr_name == b'.symtab' ):
             elf32_symtab_shdr = elf32_shdr
-            elf32_shdrs.append( elf32_shdr )
+            elf32_symtab = elf_contents[elf32_symtab_shdr.sh_offset:
+                    elf32_symtab_shdr.sh_offset+elf32_symtab_shdr.sh_size]
         elif( shdr_name == b'.strtab' ):
             elf32_strtab_shdr = elf32_shdr
-            # we're stripping the strtab, so don't add it to the list
             elf32_strtab = elf_contents[elf32_strtab_shdr.sh_offset:
                     elf32_strtab_shdr.sh_offset+elf32_strtab_shdr.sh_size]
-        else:
-            elf32_shdrs.append( elf32_shdr )
-    pdb.set_trace()
+        elf32_shdrs.append( elf32_shdr )
+        elf32_shdr_names.append(shdr_name)
 
-    # Convert all sections to JELF equivalents
-    jelf_shdrs_bytes = []
+    # Convert ALL section headers to JELF equivalents
+    jelf_shdrs = []
+    elf32_offsets = []
+    elf32_sizes = []
     for i, elf32_shdr in enumerate(elf32_shdrs):
+        # shdr_name = elf32_shdr_names[i]
+        shdr_name = index_strtab(shstrtab, elf32_shdr.sh_name)
+        log.debug( "Processing Sector %d. %s" % (i, shdr_name) )
+        log.debug( "Data Offset: %d" % elf32_shdr.sh_offset )
+        elf32_offsets.append(elf32_shdr.sh_offset)
+        log.debug( "Data Size: %d" % elf32_shdr.sh_size )
+        elf32_sizes.append(elf32_shdr.sh_size)
         jelf_shdr_d = OrderedDict()
 
         # Convert the "sh_type" field
@@ -189,16 +207,13 @@ def main():
         if elf32_shdr.sh_flags & Elf32_SHF_EXECINSTR:
             jelf_shdr_d['sh_flags'] |= Jelf_SHF_EXECINSTR
 
-        # Todo:
-        #    * Update Offset to new value
-        if elf32_shdr.sh_offset > 2**19:
-            raise("Overflow Detected")
-        else:
-            jelf_shdr_d['sh_offset']    = elf32_shdr.sh_offset
+        jelf_shdr_d['sh_offset']    = elf32_shdr.sh_offset # This is a placeholder and will be updated later
 
         if elf32_shdr.sh_size > 2**19:
             raise("Overflow Detected")
         else:
+            # for symtab, this will be updated later
+            # All other sections maintain the same size
             jelf_shdr_d['sh_size']      = elf32_shdr.sh_size
 
         if elf32_shdr.sh_info > 2**14:
@@ -206,15 +221,163 @@ def main():
         else:
             jelf_shdr_d['sh_info']      = elf32_shdr.sh_info
 
-        jelf_shdrs_bytes.append( Jelf_Shdr.pack( *(jelf_shdr_d.values()) ) )
+        jelf_shdrs.append(jelf_shdr_d)
+        # todo: do this AFTER we recompute offsets
+
+    # Sort the offsets to improve locality caching on loading
+    # todo
+
+    # Sort the offsets and lists to see if they make sense
+    elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs = (
+            list(t) for t in zip(*sorted(zip(
+        elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs))))
+
+    ###########################################
+    # Convert the ELF32 symtab to JELF Format #
+    ###########################################
+    # Revisit this later
+    elf32_sym_size = Elf32_Sym.size_bytes()
+    jelf_sym_size = Jelf_Sym.size_bytes()
+    symtab_nent = int(len(elf32_symtab)/elf32_sym_size)
+    jelf_symtab = bytearray(symtab_nent * jelf_sym_size)
+    for i in range(symtab_nent):
+        begin = i * elf32_sym_size
+        end = begin + elf32_sym_size
+        elf32_symbol = Elf32_Sym.unpack(elf32_symtab[begin:end])
+
+        # Lookup Symbol name in exported function list
+        sym_name = index_strtab(elf32_strtab, elf32_symbol.st_name).decode('ascii')
+        if sym_name == '':
+            # 0 means no name
+            jelf_name_index = 0;
+            log.debug("Symbol index %d has no name %d." % \
+                    (i, elf32_symbol.st_name))
+        else:
+            try:
+                jelf_name_index = export_list.index(sym_name)
+                if elf32_symbol.st_info == b'\x12':
+                    #print("FOUNDFOUNDFOUNDFOUND")
+                    pass
+            except ValueError:
+                #pdb.set_trace()
+                jelf_name_index=0
+                if elf32_symbol.st_info != b'\x12':
+                    pass
+                    #print("%d %s" % (i, sym_name))
+                    #print(elf32_symbol)
+                #raise("Could not find %s in export_list" % sym_name)
+
+        begin = i * jelf_sym_size
+        end = begin + jelf_sym_size
+        jelf_symtab[begin:end] = Jelf_Sym.pack(
+                jelf_name_index,
+                elf32_symbol.st_shndx,
+                elf32_symbol.st_value,
+                )
+        log.debug("%d - 0x%04x 0x%04X 0x%08X" %
+                ( i,
+                jelf_name_index,
+                elf32_symbol.st_shndx,
+                elf32_symbol.st_value,
+                    ))
+
+    #########################################
+    # Convert the ELF32 RELA to JELF Format #
+    #########################################
+    jelf_relas = {}
+    for i in range(len(jelf_shdrs)):
+        if jelf_shdrs[i]['sh_type'] != Jelf_SHT_RELA:
+            continue
+        n_relas = int(jelf_shdrs[i]['sh_size'] / Elf32_Rela.size_bytes())
+        jelf_shdrs[i]['sh_size'] = n_relas * Jelf_Rela.size_bytes()
+        jelf_sec_relas = bytearray(jelf_shdrs[i]['sh_size'])
+        for j in range(n_relas):
+            elf32_offset = jelf_shdrs[i]['sh_offset'] + j * Elf32_Rela.size_bytes()
+            jelf_offset = j * Jelf_Rela.size_bytes()
+            rela = Elf32_Rela.unpack(elf_contents[offset:])
+            # todo; convert r_info
+            elf32_r_type = rela.r_info & 0xFF
+            jelf_r_info = (rela.r_info & ~0xFF) >> 6
+            if elf32_r_type == Elf32_R_XTENSA_NONE:
+                jelf_r_info |= Jelf_R_XTENSA_NONE
+            elif elf32_r_type == Elf32_R_XTENSA_32:
+                jelf_r_info |= Jelf_R_XTENSA_32
+            elif elf32_r_type == Elf32_R_XTENSA_ASM_EXPAND:
+                jelf_r_info |= Jelf_R_XTENSA_ASM_EXPAND
+            elif elf32_r_type == Elf32_R_XTENSA_SLOT0_OP:
+                jelf_r_info |= Jelf_R_XTENSA_SLOT0_OP
+            else:
+                raise("Unexpected RELA Type")
+
+            jelf_sec_relas[jelf_offset:jelf_offset+Jelf_Rela.size_bytes()] = \
+                    Jelf_Rela.pack(rela.r_offset, rela.r_info, rela.r_addend)
+            pdb.set_trace()
+
+    #######################
+    # Write JELF Sections #
+    #######################
+    # Skip the JELF Header for now
+    jelf_ptr = Jelf_Ehdr.size_bytes()
+    for i, name in enumerate(elf32_shdr_names):
+        jelf_shdrs[i]['sh_offset'] = jelf_ptr
+        if name == b'.symtab':
+            # Copy over our updated Jelf symtab
+            jelf_shdrs[i]['sh_size'] = len(jelf_symtab)
+            new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
+            jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_symtab
+        elif name == b'.strtab':
+            # Dont copy over strtab since we're stripping it
+            continue
+        elif name == b'.shstrtab':
+            # Dont copy over shstrtab since we're stripping it
+            continue
+        else:
+            new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
+            jelf_contents[jelf_ptr:new_jelf_ptr] = \
+                    elf_contents[
+                            jelf_shdrs[i]['sh_offset']:
+                            jelf_shdrs[i]['sh_offset']+jelf_shdrs[i]['sh_size']
+                            ]
+        if jelf_shdrs[i]['sh_offset'] > 2**19:
+            raise("Overflow Detected")
+        jelf_ptr = new_jelf_ptr
+
+    # todo:Have to relocate all sections that are used during exec
+
+    ##################################################
+    # Write Section Header Table to end of JELF File #
+    ##################################################
+    jelf_shdrtbl = jelf_ptr
+    for i, jelf_shdr in enumerate(jelf_shdrs):
+        new_jelf_ptr = jelf_ptr + Jelf_Shdr.size_bytes()
+        jelf_contents[jelf_ptr:new_jelf_ptr] = \
+                Jelf_Shdr.pack( *(jelf_shdr.values()) )
+        jelf_ptr = new_jelf_ptr
+
+    ##################################
+    # Trim Jelf Binary to final size #
+    ##################################
+    jelf_contents = jelf_contents[:jelf_ptr]
+    log.info("Jelf Final Size: %d" % len(jelf_contents))
+
+    #####################
+    # Write JELF Header #
+    #####################
+    jelf_header_d = OrderedDict()
+    #todo
+
+    #############################
+    # Write JELF binary to file #
+    #############################
+    if args.output is None:
+        path_bn, ext = os.path.splitext(args.input_elf)
+        output_fn = path_bn + '.jelf'
+    else:
+        output_fn = args.output
+    with open(output_fn, 'wb') as f:
+        f.write(jelf_contents)
 
     pdb.set_trace()
-
-
-    ##############################
-    # Create the new JELF Header #
-    ##############################
     log.info("Complete!")
-
 if __name__=='__main__':
     main()

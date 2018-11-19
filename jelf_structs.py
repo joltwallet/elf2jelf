@@ -56,3 +56,8 @@ _Jelf_Rela_d['r_offset']  = 'u16'
 _Jelf_Rela_d['r_info']    = 'u16'
 _Jelf_Rela_d['r_addend']  = 'u16'
 Jelf_Rela = Unpacker( 'Jelf_Rela', _Jelf_Rela_d )
+
+Jelf_R_XTENSA_NONE       = 0
+Jelf_R_XTENSA_32         = 1
+Jelf_R_XTENSA_ASM_EXPAND = 2
+Jelf_R_XTENSA_SLOT0_OP   = 3

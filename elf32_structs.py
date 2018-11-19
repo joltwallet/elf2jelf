@@ -68,3 +68,8 @@ _Elf32_Rela_d['r_offset']  = 'u32'
 _Elf32_Rela_d['r_info']    = 'u32'
 _Elf32_Rela_d['r_addend']  = 'u32'
 Elf32_Rela = Unpacker( 'Elf32_Rela', _Elf32_Rela_d )
+
+Elf32_R_XTENSA_NONE       = 0
+Elf32_R_XTENSA_32         = 1
+Elf32_R_XTENSA_ASM_EXPAND = 11
+Elf32_R_XTENSA_SLOT0_OP   = 20
