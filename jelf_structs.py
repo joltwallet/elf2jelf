@@ -54,7 +54,7 @@ RELA
 _Jelf_Rela_d = OrderedDict()
 _Jelf_Rela_d['r_offset']  = 'u16'
 _Jelf_Rela_d['r_info']    = 'u16'
-_Jelf_Rela_d['r_addend']  = 'u16'
+_Jelf_Rela_d['r_addend']  = 's16'
 Jelf_Rela = Unpacker( 'Jelf_Rela', _Jelf_Rela_d )
 
 Jelf_R_XTENSA_NONE       = 0

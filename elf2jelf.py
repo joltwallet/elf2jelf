@@ -38,13 +38,15 @@ logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 from elf32_structs import \
         Elf32_Ehdr, Elf32_Shdr, Elf32_Sym, Elf32_Rela, \
         Elf32_SHT_RELA, Elf32_SHT_NOBITS, \
-        Elf32_SHF_ALLOC, Elf32_SHF_EXECINSTR
-
+        Elf32_SHF_ALLOC, Elf32_SHF_EXECINSTR, \
+        Elf32_R_XTENSA_NONE, Elf32_R_XTENSA_32, \
+        Elf32_R_XTENSA_ASM_EXPAND, Elf32_R_XTENSA_SLOT0_OP
 from jelf_structs import \
         Jelf_Ehdr, Jelf_Shdr, Jelf_Sym, Jelf_Rela, \
         Jelf_SHT_OTHER, Jelf_SHT_RELA, Jelf_SHT_NOBITS, \
-        Jelf_SHF_ALLOC, Jelf_SHF_EXECINSTR
-
+        Jelf_SHF_ALLOC, Jelf_SHF_EXECINSTR, \
+        Jelf_R_XTENSA_NONE, Jelf_R_XTENSA_32, \
+        Jelf_R_XTENSA_ASM_EXPAND, Jelf_R_XTENSA_SLOT0_OP
 
 # Debugging Utilities
 import ipdb as pdb
@@ -145,6 +147,7 @@ def main():
     # for some reason, this is incorrect
     shstrtab_name = index_strtab(shstrtab, shstrtab_shdr.sh_name)
     assert( shstrtab_name == b'.shstrtab' )
+    del(offset)
 
     ####################
     # Read The .strtab #
@@ -161,10 +164,11 @@ def main():
     elf32_symtab_shdr = None
     elf32_strtab = None
     elf32_strtab_shdr = None
-    for i in range(0, ehdr.e_shnum):
+    for i in range(ehdr.e_shnum):
         # The Shdr Table is wayyyyyy at the end
         offset = ehdr.e_shoff + i * Elf32_Shdr.size_bytes()
         elf32_shdr = Elf32_Shdr.unpack(elf_contents[offset:])
+        del(offset)
         shdr_name = index_strtab(shstrtab, elf32_shdr.sh_name)
         log.debug("Read in Section Header %d. %s " % (i, shdr_name))
         if( shdr_name == b'.symtab' ):
@@ -224,18 +228,19 @@ def main():
         jelf_shdrs.append(jelf_shdr_d)
         # todo: do this AFTER we recompute offsets
 
-    # Sort the offsets to improve locality caching on loading
-    # todo
-
-    # Sort the offsets and lists to see if they make sense
+    ###########################################################
+    # Sort the offsets to improve locality caching on loading #
+    ###########################################################
+    '''
     elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs = (
             list(t) for t in zip(*sorted(zip(
         elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs))))
+    '''
 
     ###########################################
     # Convert the ELF32 symtab to JELF Format #
     ###########################################
-    # Revisit this later
+    # Revisit this later, do we need all these symbols?
     elf32_sym_size = Elf32_Sym.size_bytes()
     jelf_sym_size = Jelf_Sym.size_bytes()
     symtab_nent = int(len(elf32_symtab)/elf32_sym_size)
@@ -274,30 +279,45 @@ def main():
                 elf32_symbol.st_shndx,
                 elf32_symbol.st_value,
                 )
+        '''
         log.debug("%d - 0x%04x 0x%04X 0x%08X" %
                 ( i,
                 jelf_name_index,
                 elf32_symbol.st_shndx,
                 elf32_symbol.st_value,
                     ))
+        '''
 
     #########################################
     # Convert the ELF32 RELA to JELF Format #
     #########################################
     jelf_relas = {}
     for i in range(len(jelf_shdrs)):
+        #if jelf_shdrs[i]['sh_flags'] & Jelf_SHF_ALLOC == 0:
         if jelf_shdrs[i]['sh_type'] != Jelf_SHT_RELA:
             continue
+
         n_relas = int(jelf_shdrs[i]['sh_size'] / Elf32_Rela.size_bytes())
         jelf_shdrs[i]['sh_size'] = n_relas * Jelf_Rela.size_bytes()
         jelf_sec_relas = bytearray(jelf_shdrs[i]['sh_size'])
         for j in range(n_relas):
             elf32_offset = jelf_shdrs[i]['sh_offset'] + j * Elf32_Rela.size_bytes()
-            jelf_offset = j * Jelf_Rela.size_bytes()
-            rela = Elf32_Rela.unpack(elf_contents[offset:])
-            # todo; convert r_info
+            jelf_offset  = j * Jelf_Rela.size_bytes()
+            rela = Elf32_Rela.unpack(elf_contents[elf32_offset:])
+
             elf32_r_type = rela.r_info & 0xFF
             jelf_r_info = (rela.r_info & ~0xFF) >> 6
+
+            if rela.r_offset > 2**16:
+                pdb.set_trace()
+                raise("Overflow Detected")
+            if jelf_r_info > 2**16:
+                pdb.set_trace()
+                raise("Overflow Detected")
+            if rela.r_addend > 2**16:
+                pdb.set_trace()
+                raise("Overflow Detected")
+
             if elf32_r_type == Elf32_R_XTENSA_NONE:
                 jelf_r_info |= Jelf_R_XTENSA_NONE
             elif elf32_r_type == Elf32_R_XTENSA_32:
@@ -307,11 +327,13 @@ def main():
             elif elf32_r_type == Elf32_R_XTENSA_SLOT0_OP:
                 jelf_r_info |= Jelf_R_XTENSA_SLOT0_OP
             else:
+                log.error("Failed on %d %s" % (i, elf32_shdr_names[i]))
+                pdb.set_trace()
                 raise("Unexpected RELA Type")
 
             jelf_sec_relas[jelf_offset:jelf_offset+Jelf_Rela.size_bytes()] = \
-                    Jelf_Rela.pack(rela.r_offset, rela.r_info, rela.r_addend)
-            pdb.set_trace()
+                    Jelf_Rela.pack(rela.r_offset, jelf_r_info, rela.r_addend)
+        jelf_relas[i] = jelf_sec_relas
 
     #######################
     # Write JELF Sections #
@@ -331,6 +353,10 @@ def main():
         elif name == b'.shstrtab':
             # Dont copy over shstrtab since we're stripping it
             continue
+        elif jelf_shdrs[i]['sh_type'] == Jelf_SHT_RELA:
+            new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
+            jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_relas[i]
+
         else:
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             jelf_contents[jelf_ptr:new_jelf_ptr] = \
@@ -377,7 +403,7 @@ def main():
     with open(output_fn, 'wb') as f:
         f.write(jelf_contents)
 
-    pdb.set_trace()
     log.info("Complete!")
+
 if __name__=='__main__':
     main()

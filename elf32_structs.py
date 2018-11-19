@@ -66,7 +66,7 @@ RELA
 _Elf32_Rela_d = OrderedDict()
 _Elf32_Rela_d['r_offset']  = 'u32'
 _Elf32_Rela_d['r_info']    = 'u32'
-_Elf32_Rela_d['r_addend']  = 'u32'
+_Elf32_Rela_d['r_addend']  = 's32'
 Elf32_Rela = Unpacker( 'Elf32_Rela', _Elf32_Rela_d )
 
 Elf32_R_XTENSA_NONE       = 0
