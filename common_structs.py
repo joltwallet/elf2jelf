@@ -1,6 +1,7 @@
 import math
 from collections import OrderedDict, namedtuple
 import bitstruct as bs
+from copy import deepcopy
 
 import ipdb as pdb
 
@@ -35,7 +36,12 @@ class Unpacker:
         return fstr
 
     def pack(self, *datas):
-        return self.compiled_fstr.pack(*datas)
+        # Reverse text and raw bytes
+        datas = list(datas)
+        for i, (k, v) in enumerate(self.d.items()):
+            if v[0] == 't' or v[0] == 'r':
+                datas[i] = datas[i][::-1]
+        return self.compiled_fstr.pack(*tuple(datas))
 
     def unpack(self, data):
         '''
