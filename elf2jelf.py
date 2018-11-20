@@ -298,7 +298,7 @@ def main():
                 )
         if sym_name == "app_main":
             #todo; this may not be the most correct
-            jelf_ehdr_entrypoint = begin
+            jelf_ehdr_entrypoint = i
         '''
         log.debug("%d - 0x%04x 0x%04X 0x%08X" %
                 ( i,

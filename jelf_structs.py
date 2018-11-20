@@ -18,8 +18,8 @@ _Jelf_Ehdr_d['e_shnum']          = 'u16'
 _Jelf_Ehdr_d['e_shoff']          = 'u32'
 _Jelf_Ehdr_d['e_coin_purpose']   = 'u32'
 _Jelf_Ehdr_d['e_coin_path']      = 'u32'
-_Jelf_Ehdr_d['e_bip32key']  = 't%d' % (32*8)
-_Jelf_Ehdr_d['e_signature']  = 'r%d' % 256
+_Jelf_Ehdr_d['e_bip32key']       = 't%d' % (32*8)
+_Jelf_Ehdr_d['e_signature']      = 'r%d' % 256
 Jelf_Ehdr = Unpacker( 'Jelf_Ehdr', _Jelf_Ehdr_d )
 
 '''
