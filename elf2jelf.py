@@ -69,9 +69,9 @@ def parse_args():
                 extension''')
     parser.add_argument('--coin', '-c', type=str, default=None,
             help='''
-            Coin Derivation (2 integers); for example "44'/165'"
+            Coin Derivation (2 integers); for example "44'/165'. Note: you must wrap the argument in double quotes to be properly parsed."
                  ''')
-    parser.add_argument('--bip32key', '-c', type=str, default='bitcoin_seed',
+    parser.add_argument('--bip32key', type=str, default='bitcoin_seed',
             help='''
                 BIP32 Derivation Seed String Key
                  ''')
@@ -409,7 +409,7 @@ def main():
         coin |= HARDEN
     else:
         coin = int(coin_str)
-    log.info("Coin Path: 0x%08X" % coin_str)
+    log.info("Coin Path: 0x%08X" % coin)
 
     if len(args.bip32key) >= 32:
         raise("BIP32Key too long!")
@@ -417,19 +417,23 @@ def main():
     #####################
     # Write JELF Header #
     #####################
-    jelf_header_d = OrderedDict()
-    jelf_Ehdr_d['e_ident']          = '\x7fJELF\x00'
-    jelf_Ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
-    jelf_Ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
-    jelf_Ehdr_d['e_entry_offset']   = jelf_ehdr_entrypoint # todo: refine
-    jelf_Ehdr_d['e_shnum']          = jelf_ehdr_shnum
-    jelf_Ehdr_d['e_coin_purpose']   = purpose
-    jelf_Ehdr_d['e_coin_path']      = coin
-    jelf_Ehdr_d['e_bip32key']       = args.bip32key
-    jelf_Ehdr_d['e_signature']      = b'\x00'*32 # Placeholder
+    jelf_ehdr_d = OrderedDict()
+    jelf_ehdr_d['e_ident']          = '\x7fJELF\x00'
+    jelf_ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
+    jelf_ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
+    jelf_ehdr_d['e_entry_offset']   = jelf_ehdr_entrypoint # todo: refine
+    jelf_ehdr_d['e_shnum']          = jelf_ehdr_shnum
+    jelf_ehdr_d['e_coin_purpose']   = purpose
+    jelf_ehdr_d['e_coin_path']      = coin
+    jelf_ehdr_d['e_bip32key']       = args.bip32key
+    jelf_ehdr_d['e_signature']      = b'\x00'*32           # Placeholder
     jelf_contents[:Jelf_Ehdr.size_bytes()] = Jelf_Ehdr.pack(
-            jelf_header_d.values() )
+            *jelf_ehdr_d.values() )
 
+    ######################
+    # Generate Signature #
+    ######################
+    # todo
 
     #############################
     # Write JELF binary to file #
