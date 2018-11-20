@@ -11,6 +11,8 @@ JELF Header
 '''
 _Jelf_Ehdr_d = OrderedDict()
 _Jelf_Ehdr_d['e_ident']          = 't%d' % (6*8) # 6 8-bit characters
+_Jelf_Ehdr_d['e_signature']      = 'r%d' % 256
+_Jelf_Ehdr_d['e_public_key']      = 'r%d' % 256
 _Jelf_Ehdr_d['e_version_major']  = 'u8'
 _Jelf_Ehdr_d['e_version_minor']  = 'u8'
 _Jelf_Ehdr_d['e_entry_offset']   = 'u16'
@@ -19,7 +21,6 @@ _Jelf_Ehdr_d['e_shoff']          = 'u32'
 _Jelf_Ehdr_d['e_coin_purpose']   = 'u32'
 _Jelf_Ehdr_d['e_coin_path']      = 'u32'
 _Jelf_Ehdr_d['e_bip32key']       = 't%d' % (32*8)
-_Jelf_Ehdr_d['e_signature']      = 'r%d' % 256
 Jelf_Ehdr = Unpacker( 'Jelf_Ehdr', _Jelf_Ehdr_d )
 
 '''

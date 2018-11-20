@@ -434,6 +434,8 @@ def main():
     #####################
     jelf_ehdr_d = OrderedDict()
     jelf_ehdr_d['e_ident']          = '\x7fJELF\x00'
+    jelf_ehdr_d['e_signature']      = b'\x00'*32           # Placeholder
+    jelf_ehdr_d['e_public_key']     = b'\x00'*32           # Placeholder
     jelf_ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
     jelf_ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
     jelf_ehdr_d['e_entry_offset']   = jelf_ehdr_entrypoint # todo: refine
@@ -442,7 +444,6 @@ def main():
     jelf_ehdr_d['e_coin_purpose']   = purpose
     jelf_ehdr_d['e_coin_path']      = coin
     jelf_ehdr_d['e_bip32key']       = args.bip32key
-    jelf_ehdr_d['e_signature']      = b'\x00'*32           # Placeholder
     jelf_contents[:Jelf_Ehdr.size_bytes()] = Jelf_Ehdr.pack(
             *jelf_ehdr_d.values() )
 
