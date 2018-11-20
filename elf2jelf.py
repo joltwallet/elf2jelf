@@ -18,6 +18,9 @@ The Section Header Table is a Section like any other
    * Theres a pointer to the Section Header Table Section in the ELF Header.
 
 Assumes symtab is at the end (ignoring strtab and shstrtab)
+
+Todo:
+    * Generate Signature
 '''
 
 __author__  = 'Brian Pugh'
@@ -51,6 +54,8 @@ from jelf_structs import \
 # Debugging Utilities
 import ipdb as pdb
 
+HARDEN = 0x80000000
+
 def align(x, base=4):
     return int( base * math.ceil(float(x)/base))
 
@@ -65,6 +70,10 @@ def parse_args():
     parser.add_argument('--coin', '-c', type=str, default=None,
             help='''
             Coin Derivation (2 integers); for example "44'/165'"
+                 ''')
+    parser.add_argument('--bip32key', '-c', type=str, default='bitcoin_seed',
+            help='''
+                BIP32 Derivation Seed String Key
                  ''')
     parser.add_argument('--verbose', '-v', type=str, default='INFO',
             help='''
@@ -131,6 +140,7 @@ def main():
     #####################
     assert( Elf32_Ehdr.size_bytes() == 52 )
     ehdr = Elf32_Ehdr.unpack(elf_contents[0:])
+    jelf_ehdr_shnum = ehdr.e_shnum
     validate_esp32_ehdr(ehdr)
     log.debug("Number of Sections: %d" % ehdr.e_shnum)
     log.debug("SectionHeader Offset: %d" % ehdr.e_shoff)
@@ -272,6 +282,9 @@ def main():
                 elf32_symbol.st_shndx,
                 elf32_symbol.st_value,
                 )
+        if sym_name == "app_main":
+            #todo; this may not be the most correct
+            jelf_ehdr_entrypoint = begin
         '''
         log.debug("%d - 0x%04x 0x%04X 0x%08X" %
                 ( i,
@@ -286,7 +299,6 @@ def main():
     #########################################
     jelf_relas = {}
     for i in range(len(jelf_shdrs)):
-        #if jelf_shdrs[i]['sh_flags'] & Jelf_SHF_ALLOC == 0:
         if jelf_shdrs[i]['sh_type'] != Jelf_SHT_RELA:
             continue
 
@@ -342,9 +354,11 @@ def main():
             jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_symtab
         elif name == b'.strtab':
             # Dont copy over strtab since we're stripping it
+            jelf_ehdr_shnum -= 1
             continue
         elif name == b'.shstrtab':
             # Dont copy over shstrtab since we're stripping it
+            jelf_ehdr_shnum -= 1
             continue
         elif jelf_shdrs[i]['sh_type'] == Jelf_SHT_RELA:
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
@@ -377,21 +391,44 @@ def main():
     jelf_contents = jelf_contents[:jelf_ptr]
     log.info("Jelf Final Size: %d" % len(jelf_contents))
 
+    ###########################
+    # Parse Coin CLI Argument #
+    ###########################
+    if args.coin is None:
+        raise("must specify coin derivation path")
+    purpose_str, coin_str = args.coin.split('/')
+    # Check for harden specifier
+    if purpose_str[-1] == "'":
+        purpose = int(purpose_str[:-1])
+        purpose |= HARDEN
+    else:
+        purpose = int(purpose_str)
+    log.info("Coin Purpose: 0x%08X" % purpose)
+    if purpose_str[-1] == "'":
+        coin = int(coin_str[:-1])
+        coin |= HARDEN
+    else:
+        coin = int(coin_str)
+    log.info("Coin Path: 0x%08X" % coin_str)
+
+    if len(args.bip32key) >= 32:
+        raise("BIP32Key too long!")
+
     #####################
     # Write JELF Header #
     #####################
-    #todo
-    if False:
-        jelf_header_d = OrderedDict()
-        jelf_Ehdr_d['e_ident']          = '\x7fJELF\x00'
-        jelf_Ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
-        jelf_Ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
-        jelf_Ehdr_d['e_entry_offset']   = 'u32'
-        jelf_Ehdr_d['e_shnum']          = 'u16'
-        jelf_Ehdr_d['e_coin_purpose']   = 'u32'
-        jelf_Ehdr_d['e_coin_path']      = 'u32'
-        jelf_Ehdr_d['e_bip32key']  = 't%d' % (32*8)
-        jelf_Ehdr_d['e_signature']  = b'\x00'*32 # Placeholder
+    jelf_header_d = OrderedDict()
+    jelf_Ehdr_d['e_ident']          = '\x7fJELF\x00'
+    jelf_Ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
+    jelf_Ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
+    jelf_Ehdr_d['e_entry_offset']   = jelf_ehdr_entrypoint # todo: refine
+    jelf_Ehdr_d['e_shnum']          = jelf_ehdr_shnum
+    jelf_Ehdr_d['e_coin_purpose']   = purpose
+    jelf_Ehdr_d['e_coin_path']      = coin
+    jelf_Ehdr_d['e_bip32key']       = args.bip32key
+    jelf_Ehdr_d['e_signature']      = b'\x00'*32 # Placeholder
+    jelf_contents[:Jelf_Ehdr.size_bytes()] = Jelf_Ehdr.pack(
+            jelf_header_d.values() )
 
 
     #############################
