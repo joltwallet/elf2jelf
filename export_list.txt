@@ -54,9 +54,7 @@ get_display_brightness
 hd_node_copy
 hd_node_iterate
 heap_caps_calloc
-if JOLT_GUI_DEBUG_FUNCTIONS
 jolt_gui_debug_obj_print
-endif
 jolt_gui_num_create
 jolt_gui_num_get_arr
 jolt_gui_num_set_back_action

@@ -122,6 +122,19 @@ def main():
         _JELF_VERSION_MINOR = int(_JELF_VERSION_MINOR)
         export_list = [line.rstrip() for line in f]
 
+    ###################################
+    # Generate jolt_lib.h export list #
+    ###################################
+    with open('export_list.h', 'w') as f:
+        f.write('''_JELF_VERSION_MAJOR = %d;\n''' % _JELF_VERSION_MAJOR)
+        f.write('''_JELF_VERSION_MINOR = %d;\n\n''' % _JELF_VERSION_MINOR)
+        f.write('''#define EXPORT_SYMBOL(x) &x\n\n''')
+        f.write('''static void *exports[] = {\n''')
+
+        for f_name in export_list:
+            f.write('''    EXPORT_SYMBOL( %s ),\n''' % f_name)
+        f.write('''};\n''')
+
     ####################
     # Read In ELF File #
     ####################
