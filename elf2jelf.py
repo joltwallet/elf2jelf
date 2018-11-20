@@ -393,6 +393,7 @@ def main():
     # Write Section Header Table to end of JELF File #
     ##################################################
     jelf_shdrtbl = jelf_ptr
+    log.info("SectionHeaderTable Offset: 0x%08X" % jelf_shdrtbl)
     for i, jelf_shdr in enumerate(jelf_shdrs):
         new_jelf_ptr = jelf_ptr + Jelf_Shdr.size_bytes()
         jelf_contents[jelf_ptr:new_jelf_ptr] = \
