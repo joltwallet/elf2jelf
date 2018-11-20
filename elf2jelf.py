@@ -275,7 +275,8 @@ def main():
                     (i, elf32_symbol.st_name))
         else:
             try:
-                jelf_name_index = export_list.index(sym_name)
+                # Plus one because 0 means no name
+                jelf_name_index = export_list.index(sym_name) + 1
                 if elf32_symbol.st_info == b'\x12':
                     #print("FOUNDFOUNDFOUNDFOUND")
                     pass
