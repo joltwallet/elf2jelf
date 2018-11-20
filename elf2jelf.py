@@ -437,6 +437,7 @@ def main():
     jelf_ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
     jelf_ehdr_d['e_entry_offset']   = jelf_ehdr_entrypoint # todo: refine
     jelf_ehdr_d['e_shnum']          = jelf_ehdr_shnum
+    jelf_ehdr_d['e_shoff']          = jelf_shdrtbl
     jelf_ehdr_d['e_coin_purpose']   = purpose
     jelf_ehdr_d['e_coin_path']      = coin
     jelf_ehdr_d['e_bip32key']       = args.bip32key
