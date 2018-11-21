@@ -37,6 +37,7 @@ Jelf_Shdr = Unpacker( 'Jelf_Shdr', _Jelf_Shdr_d )
 Jelf_SHT_OTHER = 0
 Jelf_SHT_RELA = 1
 Jelf_SHT_NOBITS = 2
+Jelf_SHT_SYMTAB = 3
 
 Jelf_SHF_ALLOC     = 1 << 0
 Jelf_SHF_EXECINSTR = 1 << 1

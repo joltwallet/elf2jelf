@@ -35,6 +35,7 @@ from collections import OrderedDict, namedtuple
 import bitstruct as bs
 from common_structs import index_strtab
 import math
+import binascii
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
@@ -46,7 +47,7 @@ from elf32_structs import \
         Elf32_R_XTENSA_ASM_EXPAND, Elf32_R_XTENSA_SLOT0_OP
 from jelf_structs import \
         Jelf_Ehdr, Jelf_Shdr, Jelf_Sym, Jelf_Rela, \
-        Jelf_SHT_OTHER, Jelf_SHT_RELA, Jelf_SHT_NOBITS, \
+        Jelf_SHT_OTHER, Jelf_SHT_RELA, Jelf_SHT_NOBITS, Jelf_SHT_SYMTAB, \
         Jelf_SHF_ALLOC, Jelf_SHF_EXECINSTR, \
         Jelf_R_XTENSA_NONE, Jelf_R_XTENSA_32, \
         Jelf_R_XTENSA_ASM_EXPAND, Jelf_R_XTENSA_SLOT0_OP
@@ -242,16 +243,20 @@ def main():
         if elf32_shdr.sh_info > 2**14:
             raise("Overflow Detected")
         else:
+            # todo: for rela this is index to section, which changes after sorting
             jelf_shdr_d['sh_info']      = elf32_shdr.sh_info
-
+        log.debug(jelf_shdr_d)
         jelf_shdrs.append(jelf_shdr_d)
 
     ###########################################################
     # Sort the offsets to improve locality caching on loading #
     ###########################################################
+    # todo get mapping to update rela sh_info field
+    '''
     elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs = (
             list(t) for t in zip(*sorted(zip(
         elf32_offsets, elf32_sizes, elf32_shdr_names, jelf_shdrs))))
+    '''
 
     ###########################################
     # Convert the ELF32 symtab to JELF Format #
@@ -364,6 +369,7 @@ def main():
         if name == b'.symtab':
             # Copy over our updated Jelf symtab
             jelf_shdrs[i]['sh_size'] = len(jelf_symtab)
+            jelf_shdrs[i]['sh_type'] = Jelf_SHT_SYMTAB
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_symtab
         elif name == b'.strtab':
@@ -395,9 +401,21 @@ def main():
     jelf_shdrtbl = jelf_ptr
     log.info("SectionHeaderTable Offset: 0x%08X" % jelf_shdrtbl)
     for i, jelf_shdr in enumerate(jelf_shdrs):
+        shdr_name = elf32_shdr_names[i]
+        if shdr_name == b'.strtab':
+            # Dont copy over strtab since we're stripping it
+            continue
+        elif shdr_name == b'.shstrtab':
+            # Dont copy over shstrtab since we're stripping it
+            continue
+
         new_jelf_ptr = jelf_ptr + Jelf_Shdr.size_bytes()
-        jelf_contents[jelf_ptr:new_jelf_ptr] = \
-                Jelf_Shdr.pack( *(jelf_shdr.values()) )
+        shdr_bytes = Jelf_Shdr.pack( *(jelf_shdr.values()) )
+        log.info("Packing SectionHeader %d. %s; offset 0x%04x; bytes: %s",
+                i, shdr_name,
+                jelf_ptr, binascii.hexlify(shdr_bytes) )
+        log.info(jelf_shdr)
+        jelf_contents[jelf_ptr:new_jelf_ptr] = shdr_bytes
         jelf_ptr = new_jelf_ptr
 
     ##################################
