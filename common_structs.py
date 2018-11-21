@@ -40,7 +40,13 @@ class Unpacker:
         datas = list(datas)
         for i, (k, v) in enumerate(self.d.items()):
             if v[0] == 't' or v[0] == 'r':
-                datas[i] = datas[i][::-1]
+                if v[0] == 'r':
+                    b = bytearray(int(v[1:])//8)
+                    b[:len(datas[i])] = datas[i]
+                else:
+                    len_diff = (int(v[1:])//8) - len(datas[i])
+                    b = datas[i] + '\0'*len_diff
+                datas[i] = b[::-1]
         return self.compiled_fstr.pack(*tuple(datas))
 
     def unpack(self, data):

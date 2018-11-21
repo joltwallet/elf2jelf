@@ -462,6 +462,7 @@ def main():
     jelf_ehdr_d['e_coin_purpose']   = purpose
     jelf_ehdr_d['e_coin_path']      = coin
     jelf_ehdr_d['e_bip32key']       = args.bip32key
+
     jelf_contents[:Jelf_Ehdr.size_bytes()] = Jelf_Ehdr.pack(
             *jelf_ehdr_d.values() )
 
