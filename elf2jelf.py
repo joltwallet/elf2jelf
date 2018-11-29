@@ -209,7 +209,7 @@ def main():
     for i, elf32_shdr in enumerate(elf32_shdrs):
         # shdr_name = elf32_shdr_names[i]
         shdr_name = index_strtab(shstrtab, elf32_shdr.sh_name)
-        log.debug( "Processing Sector %d. %s" % (i, shdr_name) )
+        log.debug( "Processing Section %d. %s" % (i, shdr_name) )
         log.debug( "Data Offset: %d" % elf32_shdr.sh_offset )
         elf32_offsets.append(elf32_shdr.sh_offset)
         log.debug( "Data Size: %d" % elf32_shdr.sh_size )
@@ -287,6 +287,7 @@ def main():
                     pass
             except ValueError:
                 #pdb.set_trace()
+                # This seems a bit iffy
                 jelf_name_index=0
                 if elf32_symbol.st_info != b'\x12':
                     pass
@@ -296,6 +297,7 @@ def main():
 
         begin = i * jelf_sym_size
         end = begin + jelf_sym_size
+        # st_shndx relies on all the sections being in the same order
         jelf_symtab[begin:end] = Jelf_Sym.pack(
                 jelf_name_index,
                 elf32_symbol.st_shndx,
@@ -325,12 +327,14 @@ def main():
         jelf_shdrs[i]['sh_size'] = n_relas * Jelf_Rela.size_bytes()
         jelf_sec_relas = bytearray(jelf_shdrs[i]['sh_size'])
         for j in range(n_relas):
+            # pointer into the binaries
             elf32_offset = jelf_shdrs[i]['sh_offset'] + j * Elf32_Rela.size_bytes()
             jelf_offset  = j * Jelf_Rela.size_bytes()
+
             rela = Elf32_Rela.unpack(elf_contents[elf32_offset:])
 
             elf32_r_type = rela.r_info & 0xFF
-            jelf_r_info = (rela.r_info & ~0xFF) >> 6
+            jelf_r_info = ((rela.r_info & ~0xFF) >> 8) << 2 # 2 bits for jelf_r_type
 
             if rela.r_offset > 2**16:
                 pdb.set_trace()
@@ -338,7 +342,7 @@ def main():
             if jelf_r_info > 2**16:
                 pdb.set_trace()
                 raise("Overflow Detected")
-            if rela.r_addend > 2**16:
+            if rela.r_addend > 2**15 or rela.r_addend < -2**15:
                 pdb.set_trace()
                 raise("Overflow Detected")
 
@@ -362,8 +366,9 @@ def main():
     #######################
     # Write JELF Sections #
     #######################
-    # Skip the JELF Header for now
-    jelf_ptr = Jelf_Ehdr.size_bytes()
+    # Note: the st_shndx of Jelf_Sym indexes into sectionheadertable
+    # does this get messed up when stripping strtab and shstrtab?
+    jelf_ptr = Jelf_Ehdr.size_bytes() # Skip the JELF Header for now
     for i, name in enumerate(elf32_shdr_names):
         jelf_shdrs[i]['sh_offset'] = jelf_ptr
         if name == b'.symtab':
@@ -381,9 +386,9 @@ def main():
             jelf_ehdr_shnum -= 1
             continue
         elif jelf_shdrs[i]['sh_type'] == Jelf_SHT_RELA:
+            pdb.set_trace()
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_relas[i]
-
         else:
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             jelf_contents[jelf_ptr:new_jelf_ptr] = \
