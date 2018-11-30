@@ -90,13 +90,6 @@ def parse_args():
     dargs = vars(args)
     return (args, dargs)
 
-def validate_esp32_ehdr(ehdr: namedtuple):
-    '''
-    Some sanity checks in what the produced elf header should be
-    '''
-    assert(ehdr.e_ident == '\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-    assert(ehdr.e_machine == 94)
-
 def read_export_list():
     """
     Reads in the txt file containing all functions to export from JoltOS
@@ -128,15 +121,15 @@ def write_export_header(export_list, major, minor):
 def get_ehdr(elf_contents):
     assert( Elf32_Ehdr.size_bytes() == 52 )
     ehdr = Elf32_Ehdr.unpack(elf_contents[0:])
-    validate_esp32_ehdr(ehdr)
+    assert(ehdr.e_ident == \
+            '\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+    assert(ehdr.e_machine == 94)
     return ehdr
 
-def get_shstrtab(elf_contents):
+def get_shstrtab(elf_contents, ehdr):
     """
     Reads and returns the SectionHeaderStringTable
     """
-    ehdr = get_ehdr(elf_contents)
-
     assert( Elf32_Shdr.size_bytes() == 40 )
     offset = ehdr.e_shoff + ehdr.e_shstrndx * Elf32_Shdr.size_bytes()
     shstrtab_shdr = Elf32_Shdr.unpack(elf_contents[offset:])
@@ -147,13 +140,10 @@ def get_shstrtab(elf_contents):
     assert( shstrtab_name == b'.shstrtab' )
     return shstrtab
 
-def read_section_headers(elf_contents):
+def read_section_headers(elf_contents, ehdr, shstrtab):
     """
     Read all SectionHeaders, their names, and read in symtab, strtab
     """
-    ehdr = get_ehdr(elf_contents)
-    shstrtab = get_shstrtab(elf_contents)
-
     elf32_shdrs = []
     elf32_shdr_names = []
     elf32_symtab = None
@@ -193,7 +183,7 @@ def convert_shdrs(elf32_shdrs):
             jelf_shdr_d['sh_type'] = Jelf_SHT_OTHER
 
         # Convert the "sh_flag" field
-        jelf_shdr_d['sh_flags'] = 0x00
+        jelf_shdr_d['sh_flags'] = 0
         if elf32_shdr.sh_flags & Elf32_SHF_ALLOC:
             jelf_shdr_d['sh_flags'] |= Jelf_SHF_ALLOC
         if elf32_shdr.sh_flags & Elf32_SHF_EXECINSTR:
@@ -227,26 +217,27 @@ def convert_symtab(elf32_symtab, elf32_strtab, export_list):
         begin = i * elf32_sym_size
         end = begin + elf32_sym_size
         elf32_symbol = Elf32_Sym.unpack( elf32_symtab[begin:end] )
+        del(begin, end)
 
         # Lookup Symbol name in exported function list
         sym_name = index_strtab(elf32_strtab, elf32_symbol.st_name).decode('ascii')
 
         # Convert the SymbolName to a 1-indexed Exported Function
+        jelf_name_index = 0 # 0 means no name
         if sym_name == '':
-            # 0 means no name
-            jelf_name_index = 0;
             log.debug( "Symbol index %d has no name %d." % \
                     (i, elf32_symbol.st_name) )
         else:
             try:
                 # Plus one because 0 means no name
                 jelf_name_index = export_list.index(sym_name) + 1
-                log.debug( "Symbol index %d has name %s and matched to exported function index %d." % \
+                log.debug( ("Symbol index %d has name %s "
+                    "and matched to exported function index %d.") % \
                         (i, sym_name, jelf_name_index) )
-
             except ValueError:
+                # The function is internal to the app
                 # st_shndx is the thing that matters in this case
-                jelf_name_index = 0
+                pass
 
         # WARNING: st_shndx relies on all the sections being
         # in the same order
@@ -259,6 +250,7 @@ def convert_symtab(elf32_symtab, elf32_strtab, export_list):
                 elf32_symbol.st_shndx,
                 elf32_symbol.st_value,
                 )
+        del(begin, end)
         if sym_name == "app_main":
             # todo this may not be the most correct
             jelf_ehdr_entrypoint = i
@@ -282,11 +274,12 @@ def convert_relas(elf_contents, elf32_shdrs, jelf_shdrs):
         if jelf_shdrs[i]['sh_type'] != Jelf_SHT_RELA:
             continue
 
-        # 'sh_size' is currently as if we were using ELF32_SYM
+        # Get number of relocations in this section
         n_relas = int(elf32_shdrs[i].sh_size / Elf32_Rela.size_bytes())
+        # 'sh_size' is currently as if we were using ELF32_SYM
         jelf_shdrs[i]['sh_size'] = n_relas * Jelf_Rela.size_bytes()
-
         jelf_sec_relas = bytearray( jelf_shdrs[i]['sh_size'] )
+
         for j in range(n_relas):
             # pointer into the binaries
             elf32_offset = elf32_shdrs[i].sh_offset \
@@ -301,13 +294,10 @@ def convert_relas(elf_contents, elf32_shdrs, jelf_shdrs):
             # Convert r_info; 2 bit left shift for jelf_r_type
             jelf_r_info = ((rela.r_info & ~0xFF) >> 8) << 2
             if rela.r_offset > 2**16:
-                pdb.set_trace()
                 raise("Overflow Detected")
             if jelf_r_info > 2**16:
-                pdb.set_trace()
                 raise("Overflow Detected")
             if rela.r_addend > 2**15 or rela.r_addend < -2**15:
-                pdb.set_trace()
                 raise("Overflow Detected")
 
             # Convert the type and store in bottom 2 bits of r_info
@@ -321,7 +311,6 @@ def convert_relas(elf_contents, elf32_shdrs, jelf_shdrs):
                 jelf_r_info |= Jelf_R_XTENSA_SLOT0_OP
             else:
                 log.error("Failed on %d %s" % (i, elf32_shdr_names[i]))
-                pdb.set_trace()
                 raise("Unexpected RELA Type")
 
             # Pack the data into the rela section's bytearray
@@ -338,19 +327,20 @@ def write_jelf_sections(elf_contents,
     """
     # Sanity Check
     assert( len(jelf_shdrs) == len(elf32_shdrs) )
+    assert( len(elf32_shdrs) == len(elf32_shdr_names) )
 
     # over allocate for now
     jelf_contents = bytearray(len(elf_contents))
     jelf_ptr = Jelf_Ehdr.size_bytes() # Skip the JELF Header
 
-    # Note: the st_shndx of Jelf_Sym indexes into sectionheadertable
+    # Note: the st_shndx of Jelf_Sym indexes into sectionheadertable elements.
     # does this get messed up when stripping strtab and shstrtab?
     for i, name in enumerate(elf32_shdr_names):
         jelf_shdrs[i]['sh_offset'] = jelf_ptr
         if name == b'.symtab':
             # Copy over our updated Jelf symtab
             jelf_shdrs[i]['sh_size'] = len(jelf_symtab)
-            jelf_shdrs[i]['sh_type'] = Jelf_SHT_SYMTAB
+            jelf_shdrs[i]['sh_type'] = Jelf_SHT_SYMTAB # custom
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_symtab
         elif name == b'.strtab' or name == b'.shstrtab':
@@ -380,9 +370,11 @@ def write_jelf_sectionheadertable(jelf_contents,
     Writes the SectionHeaderTable to jelf_contents at jelf_ptr
     """
     log.info("SectionHeaderTable Offset: 0x%08X" % jelf_ptr)
+    section_count = 0
     for i, jelf_shdr in enumerate(jelf_shdrs):
         if jelf_shdrs[i] is None:
             continue
+        section_count += 1
 
         new_jelf_ptr = jelf_ptr + Jelf_Shdr.size_bytes()
         shdr_bytes = Jelf_Shdr.pack( *(jelf_shdr.values()) )
@@ -391,16 +383,14 @@ def write_jelf_sectionheadertable(jelf_contents,
         jelf_ptr = new_jelf_ptr
     # trim jelf_contents to final length
     jelf_contents = jelf_contents[:jelf_ptr]
-    return jelf_contents
+    return jelf_contents, section_count
 
 def main():
     args, dargs = parse_args()
 
     global log
     logging_level = args.verbose.upper()
-    if logging_level == 'SILENT':
-        pass
-    elif logging_level == 'INFO':
+    if logging_level == 'INFO':
         log.setLevel(logging.INFO)
     elif logging_level == 'DEBUG':
         log.setLevel(logging.DEBUG)
@@ -425,27 +415,21 @@ def main():
         elf_contents = f.read()
     log.info("Read in %d bytes" % len(elf_contents))
 
-    # Allocate space for JELF contents, this is larger than necessary
-    # jelf_contents = bytearray(len(elf_contents))
-
     #####################
     # Unpack ELF Header #
     #####################
     ehdr = get_ehdr(elf_contents)
-    # Number of sections in the Jelf file.
-    # Must be updated as sections are stripped
-    jelf_ehdr_shnum = ehdr.e_shnum
 
     ##########################################
     # Read SectionHeaderTable Section Header #
     ##########################################
-    shstrtab = get_shstrtab(elf_contents)
+    shstrtab = get_shstrtab(elf_contents, ehdr)
 
     ###########################
     # Process Section Headers #
     ###########################
     elf32_shdrs, elf32_shdr_names, elf32_symtab, elf32_strtab = \
-            read_section_headers( elf_contents )
+            read_section_headers( elf_contents, ehdr, shstrtab )
     jelf_shdrs = convert_shdrs( elf32_shdrs )
 
     ###########################################
@@ -470,7 +454,7 @@ def main():
     # Write Section Header Table to end of JELF File #
     ##################################################
     jelf_shdrtbl = jelf_ptr
-    jelf_contents = write_jelf_sectionheadertable(jelf_contents,
+    jelf_contents, jelf_ehdr_shnum = write_jelf_sectionheadertable(jelf_contents,
             jelf_shdrs, jelf_ptr)
     log.info("Jelf Final Size: %d" % len(jelf_contents))
 
