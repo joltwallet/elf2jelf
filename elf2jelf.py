@@ -38,6 +38,7 @@ import bitstruct as bs
 from common_structs import index_strtab
 import math
 import binascii
+import heatshrink as hs
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
@@ -60,6 +61,10 @@ import ipdb as pdb
 HARDEN = 0x80000000
 log = logging.getLogger('elf2jelf')
 
+# Heatshrink compression parameters
+window_sz2 = 8
+lookahead_sz2 = 4
+
 def align(x, base=4):
     return int( base * math.ceil(float(x)/base))
 
@@ -73,7 +78,8 @@ def parse_args():
                 extension''')
     parser.add_argument('--coin', '-c', type=str, default=None,
             help='''
-            Coin Derivation (2 integers); for example "44'/165'. Note: you must wrap the argument in double quotes to be properly parsed."
+            Coin Derivation (2 integers); for example "44'/165'.
+            Note: you must wrap the argument in double quotes to be properly parsed."
                  ''')
     parser.add_argument('--bip32key', type=str, default='bitcoin_seed',
             help='''
@@ -166,10 +172,14 @@ def read_section_headers(elf_contents, ehdr, shstrtab):
         elf32_shdr_names.append(shdr_name)
     return elf32_shdrs, elf32_shdr_names, elf32_symtab, elf32_strtab
 
+shf_alloc_space = 0
+shf_alloc_space_compressed = 0
+
 def convert_shdrs(elf32_shdrs):
     """
     Converts ALL ELF32 Section Headers to JELF Headers
     """
+    global shf_alloc_space
     jelf_shdrs = []
     for elf32_shdr in elf32_shdrs:
         jelf_shdr_d = OrderedDict()
@@ -186,6 +196,7 @@ def convert_shdrs(elf32_shdrs):
         jelf_shdr_d['sh_flags'] = 0
         if elf32_shdr.sh_flags & Elf32_SHF_ALLOC:
             jelf_shdr_d['sh_flags'] |= Jelf_SHF_ALLOC
+            shf_alloc_space += elf32_shdr.sh_size
         if elf32_shdr.sh_flags & Elf32_SHF_EXECINSTR:
             jelf_shdr_d['sh_flags'] |= Jelf_SHF_EXECINSTR
 
@@ -212,6 +223,8 @@ def convert_symtab(elf32_symtab, elf32_strtab, export_list):
 
     symtab_nent = int( len(elf32_symtab)/elf32_sym_size )
     jelf_symtab = bytearray( symtab_nent * jelf_sym_size )
+    log.info("jelf .symtab will be %d bytes (down from %d)",
+            len(jelf_symtab), len(elf32_symtab))
 
     for i in range(symtab_nent):
         begin = i * elf32_sym_size
@@ -251,6 +264,7 @@ def convert_symtab(elf32_symtab, elf32_strtab, export_list):
                 elf32_symbol.st_value,
                 )
         del(begin, end)
+        log.info("st_value: 0x%08X" % elf32_symbol.st_value)
         if sym_name == "app_main":
             # todo this may not be the most correct
             jelf_entrypoint_sym_idx = i
@@ -329,6 +343,8 @@ def write_jelf_sections(elf_contents,
     assert( len(jelf_shdrs) == len(elf32_shdrs) )
     assert( len(elf32_shdrs) == len(elf32_shdr_names) )
 
+    global shf_alloc_space_compressed
+
     # over allocate for now
     jelf_contents = bytearray(len(elf_contents))
     jelf_ptr = Jelf_Ehdr.size_bytes() # Skip the JELF Header
@@ -351,6 +367,21 @@ def write_jelf_sections(elf_contents,
         elif jelf_shdrs[i]['sh_type'] == Jelf_SHT_RELA:
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             jelf_contents[jelf_ptr:new_jelf_ptr] = jelf_relas[i]
+        elif jelf_shdrs[i]['sh_flags'] & Jelf_SHF_ALLOC:
+            encoded = hs.encode(elf_contents[
+                            elf32_shdrs[i].sh_offset :
+                            elf32_shdrs[i].sh_offset+elf32_shdrs[i].sh_size],
+                    window_sz2=window_sz2, lookahead_sz2=lookahead_sz2)
+            shf_alloc_space_compressed += len(encoded)
+
+            # just doing default behavior, above is just to test for savings
+            new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
+            assert(jelf_shdrs[i]['sh_size']==elf32_shdrs[i].sh_size)
+            jelf_contents[jelf_ptr:new_jelf_ptr] = \
+                    elf_contents[
+                            elf32_shdrs[i].sh_offset :
+                            elf32_shdrs[i].sh_offset+jelf_shdrs[i]['sh_size']
+                            ]
         else:
             new_jelf_ptr = jelf_ptr + jelf_shdrs[i]['sh_size']
             assert(jelf_shdrs[i]['sh_size']==elf32_shdrs[i].sh_size)
@@ -455,6 +486,7 @@ def main():
     # Write Section Header Table to end of JELF File #
     ##################################################
     jelf_shdrtbl = jelf_ptr
+    log.info("Writing SectionHeaderTable to 0x%06X", jelf_shdrtbl)
     jelf_contents, jelf_ehdr_shnum = write_jelf_sectionheadertable(jelf_contents,
             jelf_shdrs, jelf_ptr)
     log.info("Jelf Final Size: %d" % len(jelf_contents))
@@ -517,6 +549,8 @@ def main():
     with open(output_fn, 'wb') as f:
         f.write(jelf_contents)
 
+    log.info( "Compression over ALLOC sections would save %d bytes" %\
+            (shf_alloc_space - shf_alloc_space_compressed) )
     log.info("Complete!")
 
 if __name__=='__main__':
