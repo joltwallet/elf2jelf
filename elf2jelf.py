@@ -253,8 +253,8 @@ def convert_symtab(elf32_symtab, elf32_strtab, export_list):
         del(begin, end)
         if sym_name == "app_main":
             # todo this may not be the most correct
-            jelf_ehdr_entrypoint = i
-    return jelf_symtab
+            jelf_entrypoint_sym_idx = i
+    return jelf_symtab, jelf_entrypoint_sym_idx
 
 def convert_relas(elf_contents, elf32_shdrs, jelf_shdrs):
     """
@@ -435,7 +435,8 @@ def main():
     ###########################################
     # Convert the ELF32 symtab to JELF Format #
     ###########################################
-    jelf_symtab = convert_symtab(elf32_symtab, elf32_strtab, export_list)
+    jelf_symtab, jelf_entrypoint_sym_idx = convert_symtab(elf32_symtab,
+            elf32_strtab, export_list)
 
     #########################################
     # Convert the ELF32 RELA to JELF Format #
@@ -490,7 +491,7 @@ def main():
     jelf_ehdr_d['e_public_key']     = b'\x00'*32           # Placeholder
     jelf_ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
     jelf_ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
-    jelf_ehdr_d['e_entry_offset']   = 1 # todo: figure this out
+    jelf_ehdr_d['e_entry_offset']   = jelf_entrypoint_sym_idx
     jelf_ehdr_d['e_shnum']          = jelf_ehdr_shnum
     jelf_ehdr_d['e_shoff']          = jelf_shdrtbl
     jelf_ehdr_d['e_coin_purpose']   = purpose
