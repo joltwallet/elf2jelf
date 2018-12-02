@@ -38,6 +38,10 @@ import bitstruct as bs
 from common_structs import index_strtab
 import math
 import binascii
+from binascii import hexlify, unhexlify
+
+import nacl.encoding
+import nacl.signing
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
@@ -86,6 +90,9 @@ def parse_args():
             INFO
             DEBUG
             ''')
+    parser.add_argument('--signing_key', type=str,
+            default='000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F',
+            help="256-bit private key in hexidecimal (len=64).")
     args = parser.parse_args()
     dargs = vars(args)
     return (args, dargs)
@@ -388,6 +395,8 @@ def write_jelf_sectionheadertable(jelf_contents,
 def main():
     args, dargs = parse_args()
 
+    signing_key = nacl.signing.SigningKey(unhexlify(args.signing_key))
+
     global log
     logging_level = args.verbose.upper()
     if logging_level == 'INFO':
@@ -485,10 +494,13 @@ def main():
     #####################
     # Write JELF Header #
     #####################
+    public_key_bytes = signing_key.verify_key.encode(encoder=nacl.encoding.RawEncoder)
+    assert(len(public_key_bytes)==32)
+
     jelf_ehdr_d = OrderedDict()
     jelf_ehdr_d['e_ident']          = '\x7fJELF\x00'
-    jelf_ehdr_d['e_signature']      = b'\x00'*32           # Placeholder
-    jelf_ehdr_d['e_public_key']     = b'\x00'*32           # Placeholder
+    jelf_ehdr_d['e_signature']      = b'\x00'*64           # Placeholder
+    jelf_ehdr_d['e_public_key']     = public_key_bytes
     jelf_ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
     jelf_ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
     jelf_ehdr_d['e_entry_offset']   = jelf_entrypoint_sym_idx
@@ -501,19 +513,32 @@ def main():
     jelf_contents[:Jelf_Ehdr.size_bytes()] = Jelf_Ehdr.pack(
             *jelf_ehdr_d.values() )
 
-    ######################
-    # Generate Signature #
-    ######################
-    # todo
-
-    #############################
-    # Write JELF binary to file #
-    #############################
+    # Parse Output Filename
     if args.output is None:
         path_bn, ext = os.path.splitext(args.input_elf)
         output_fn = path_bn + '.jelf'
     else:
         output_fn = args.output
+    assert(output_fn[-5:]=='.jelf')
+
+    ######################
+    # Generate Signature #
+    ######################
+    log.info("Public Key: %s", hexlify(public_key_bytes).decode('utf-8'))
+    signed = signing_key.sign(
+            os.path.basename(output_fn).encode('utf-8')
+            + jelf_contents)
+    signature = signed.signature
+    assert(len(signature) == 64)
+
+    # Rewrite the header
+    jelf_ehdr_d['e_signature'] = signature
+    jelf_contents[:Jelf_Ehdr.size_bytes()] = Jelf_Ehdr.pack(
+            *jelf_ehdr_d.values() )
+
+    #############################
+    # Write JELF binary to file #
+    #############################
     with open(output_fn, 'wb') as f:
         f.write(jelf_contents)
 
