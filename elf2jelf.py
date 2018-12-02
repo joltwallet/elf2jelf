@@ -42,6 +42,10 @@ from binascii import hexlify, unhexlify
 
 import nacl.encoding
 import nacl.signing
+from nacl.bindings import \
+        crypto_sign_ed25519ph_state, \
+        crypto_sign_ed25519ph_update, \
+        crypto_sign_ed25519ph_final_create
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
@@ -494,13 +498,15 @@ def main():
     #####################
     # Write JELF Header #
     #####################
-    public_key_bytes = signing_key.verify_key.encode(encoder=nacl.encoding.RawEncoder)
-    assert(len(public_key_bytes)==32)
+    pk = signing_key.verify_key.encode(encoder=nacl.encoding.RawEncoder)
+    sk = signing_key.encode(encoder=nacl.encoding.RawEncoder)
+    assert(len(pk)==32)
+    assert(len(sk)==32)
 
     jelf_ehdr_d = OrderedDict()
     jelf_ehdr_d['e_ident']          = '\x7fJELF\x00'
     jelf_ehdr_d['e_signature']      = b'\x00'*64           # Placeholder
-    jelf_ehdr_d['e_public_key']     = public_key_bytes
+    jelf_ehdr_d['e_public_key']     = pk
     jelf_ehdr_d['e_version_major']  = _JELF_VERSION_MAJOR
     jelf_ehdr_d['e_version_minor']  = _JELF_VERSION_MINOR
     jelf_ehdr_d['e_entry_offset']   = jelf_entrypoint_sym_idx
@@ -524,12 +530,19 @@ def main():
     ######################
     # Generate Signature #
     ######################
-    log.info("Public Key: %s", hexlify(public_key_bytes).decode('utf-8'))
-    signed = signing_key.sign(
-            os.path.basename(output_fn).encode('utf-8')
-            + jelf_contents)
-    signature = signed.signature
+    log.info("Secret Key: %s", hexlify(sk).decode('utf-8'))
+    log.info("Public Key: %s", hexlify(pk).decode('utf-8'))
+
+    name_to_sign = os.path.basename(output_fn[:-5]).encode('utf-8')
+    log.info("Signed application name: %s" % name_to_sign)
+
+    state = crypto_sign_ed25519ph_state()
+    crypto_sign_ed25519ph_update(state, name_to_sign)
+    crypto_sign_ed25519ph_update(state, bytes(jelf_contents))
+    signature = crypto_sign_ed25519ph_final_create(state, sk+pk)
+
     assert(len(signature) == 64)
+    log.info("Signature: %s", hexlify(signature).decode('utf-8'))
 
     # Rewrite the header
     jelf_ehdr_d['e_signature'] = signature
