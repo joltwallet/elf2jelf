@@ -65,6 +65,8 @@ from jelf_structs import \
 # Debugging Utilities
 import ipdb as pdb
 
+this_path = os.path.dirname(os.path.realpath(__file__))
+
 HARDEN = 0x80000000
 log = logging.getLogger('elf2jelf')
 
@@ -105,7 +107,7 @@ def read_export_list():
     """
     Reads in the txt file containing all functions to export from JoltOS
     """
-    with open('export_list.txt', 'r') as f:
+    with open(os.path.join(this_path, 'export_list.txt'), 'r') as f:
         version_header = f.readline().rstrip()
         version_name, version_str = version_header.split(' ')
         assert(version_name == 'VERSION')
@@ -119,7 +121,7 @@ def write_export_header(export_list, major, minor):
     """
     Writes the export struct used in jolt_lib.h
     """
-    with open('export_list.h', 'w') as f:
+    with open(os.path.join(this_path, 'export_list.h'), 'w') as f:
         f.write('''_JELF_VERSION_MAJOR = %d;\n''' % major)
         f.write('''_JELF_VERSION_MINOR = %d;\n\n''' % minor)
         f.write('''#define EXPORT_SYMBOL(x) &x\n\n''')
