@@ -380,7 +380,7 @@ def write_jelf_sectionheadertable(jelf_contents,
     """
     Writes the SectionHeaderTable to jelf_contents at jelf_ptr
     """
-    log.info("SectionHeaderTable Offset: 0x%08X" % jelf_ptr)
+    log.debug("SectionHeaderTable Offset: 0x%08X" % jelf_ptr)
     section_count = 0
     for i, jelf_shdr in enumerate(jelf_shdrs):
         if jelf_shdrs[i] is None:
@@ -389,7 +389,7 @@ def write_jelf_sectionheadertable(jelf_contents,
 
         new_jelf_ptr = jelf_ptr + Jelf_Shdr.size_bytes()
         shdr_bytes = Jelf_Shdr.pack( *(jelf_shdr.values()) )
-        log.info(jelf_shdr)
+        log.debug(jelf_shdr)
         jelf_contents[jelf_ptr:new_jelf_ptr] = shdr_bytes
         jelf_ptr = new_jelf_ptr
     # trim jelf_contents to final length
