@@ -39,6 +39,7 @@ from common_structs import index_strtab
 import math
 import binascii
 from binascii import hexlify, unhexlify
+import zlib
 
 import nacl.encoding
 import nacl.signing
@@ -69,6 +70,19 @@ this_path = os.path.dirname(os.path.realpath(__file__))
 
 HARDEN = 0x80000000
 log = logging.getLogger('elf2jelf')
+
+def compress_data(data):
+    w_bits = 12
+    level = zlib.Z_BEST_COMPRESSION
+    log.info("Compressing at level %d with window (dict) size %d", level, 2**w_bits)
+    compressor = zlib.compressobj(level=level, method=zlib.DEFLATED,
+            wbits=w_bits, memLevel=zlib.DEF_MEM_LEVEL, strategy=zlib.Z_DEFAULT_STRATEGY)
+    compressed_data = compressor.compress(data)
+    compressed_data += compressor.flush()
+    compress_percentage = 100*(1-(len(compressed_data)/len(data)))
+    log.info("Compressed data to %d bytes (%.2f%% smaller)" % \
+            (len(compressed_data), compress_percentage) )
+    return compressed_data
 
 def align(x, base=4):
     return int( base * math.ceil(float(x)/base))
@@ -556,6 +570,13 @@ def main():
     #############################
     with open(output_fn, 'wb') as f:
         f.write(jelf_contents)
+
+    ########################################
+    # Write Compressed JELF binary to file #
+    ########################################
+    compressed_jelf = compress_data(jelf_contents);
+    with open(output_fn+'.gz', 'wb') as f:
+        f.write(compressed_jelf)
 
     log.info("Complete!")
 
