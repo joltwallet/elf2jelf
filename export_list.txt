@@ -265,7 +265,9 @@ subconsole_cmd_init
 subconsole_cmd_register
 subconsole_cmd_run
 vTaskDelete
-vault
+vault_get_node
+vault_get_valid
+vault_is_valid
 vault_refresh
 vault_sem_give
 vault_sem_take
