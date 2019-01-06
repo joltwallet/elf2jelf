@@ -135,15 +135,17 @@ def write_export_header(export_list, major, minor):
     """
     Writes the export struct used in jolt_lib.h
     """
-    with open(os.path.join(this_path, 'export_list.h'), 'w') as f:
-        f.write('''_JELF_VERSION_MAJOR = %d;\n''' % major)
-        f.write('''_JELF_VERSION_MINOR = %d;\n\n''' % minor)
-        f.write('''#define EXPORT_SYMBOL(x) &x\n\n''')
-        f.write('''static void *exports[] = {\n''')
+    with open(os.path.join(this_path, 'jolt_lib_template.h')) as f:
+        template = f.read()
 
-        for f_name in export_list:
-            f.write('''    EXPORT_SYMBOL( %s ),\n''' % f_name)
-        f.write('''};\n''')
+    export_string = ''
+    for f_name in export_list:
+        export_string += '''    EXPORT_SYMBOL( %s ),\n''' % f_name
+
+    jolt_lib = template % export_string
+
+    with open(os.path.join(this_path, 'jolt_lib.h'), 'w') as f:
+        f.write(jolt_lib)
 
 def get_ehdr(elf_contents):
     assert( Elf32_Ehdr.size_bytes() == 52 )
