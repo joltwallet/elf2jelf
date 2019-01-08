@@ -1,1 +1,2 @@
 bitstruct==4.0.0
+cython==0.24

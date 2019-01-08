@@ -1183,3 +1183,19 @@ void jelfLoaderFree(jelfLoaderContext_t *ctx) {
     free(ctx);
 }
 
+#if !ESP_PLATFORM
+/* Returns the transverse hash. To be called from elf2jelf.py */
+jelfLoaderInitLoadRelocateHash(char *fn, int n_exports){
+    jelfLoaderContext_t ctx_obj = { 0 };
+    jelfLoaderContext_t ctx = &ctx_obj;
+    jelfLoaderEnv_t env = { 0 };
+    env.exported_size = n_exports;
+    env.exported = calloc(n_exports, sizeof(void*));
+
+    ESP_LOGI(TAG, "jelfLoader; Initializing");
+    /* fn_basename is passed in for signature checking */
+    ctx = jelfLoaderInit(program, fn_basename, &env);
+    jelfLoaderLoad(ctx);
+    jelfLoaderRelocate(ctx);
+}
+#endif
