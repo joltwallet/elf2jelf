@@ -40,6 +40,7 @@ import math
 import binascii
 from binascii import hexlify, unhexlify
 import zlib
+import jelf_loader
 
 import nacl.encoding
 import nacl.signing
@@ -113,6 +114,7 @@ def parse_args():
     parser.add_argument('--signing_key', type=str,
             default='000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F',
             help="256-bit private key in hexidecimal (len=64).")
+
     args = parser.parse_args()
     dargs = vars(args)
     return (args, dargs)
@@ -572,6 +574,12 @@ def main():
     #############################
     with open(output_fn, 'wb') as f:
         f.write(jelf_contents)
+
+    #pdb.set_trace()
+    print(output_fn.encode())
+    print(name_to_sign)
+    print(len(export_list))
+    jelf_loader.jelfLoader(output_fn.encode(), name_to_sign, len(export_list))
 
     ########################################
     # Write Compressed JELF binary to file #

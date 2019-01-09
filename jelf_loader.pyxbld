@@ -1,0 +1,11 @@
+def make_ext(modname, pyxfilename):
+    from distutils.extension import Extension
+    return Extension(
+        modname,
+        [pyxfilename, 'jelf_loader/src/loader.c', 'jelf_loader/src/unaligned.c'],
+        language="c",
+        libraries = ['sodium'],
+        include_dirs = ['jolt-types/include', 'jelf_loader/src' 'jelf_loader/include'],
+        extra_link_args=[],
+    ),
+

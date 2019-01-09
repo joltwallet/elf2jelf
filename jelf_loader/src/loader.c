@@ -13,12 +13,13 @@
 #include "jelf.h"
 #include "jelfloader.h"
 
+#include "sodium.h"
+
 static const char* TAG = "JelfLoader";
 
 #if ESP_PLATFORM
 
 #include "esp_log.h"
-#include "sodium.h"
 #include "hal/storage/storage.h"
 
 #define MSG(...)  ESP_LOGD(TAG, __VA_ARGS__);
@@ -26,10 +27,10 @@ static const char* TAG = "JelfLoader";
 #define ERR(...)  ESP_LOGE(TAG, __VA_ARGS__);
 
 #else
-
+#include <stdio.h>
 #define MSG(...)
-#define INFO(...) printf( __VA_ARGS__ )
-#define ERR(...) printf( __VA_ARGS__ )
+#define INFO(...) printf( __VA_ARGS__ ); printf("\n");
+#define ERR(...) printf( __VA_ARGS__ ); printf("\n");
 
 #endif //ESP_PLATFORM logging macros
 
@@ -461,6 +462,7 @@ static bool app_signature_init(jelfLoaderContext_t *ctx,
         /* First check to see if the public key is an accepted app key.
          * If it is valid, copy it into the ctx */
         uint256_t approved_pub_key = { 0 };
+#if ESP_PLATFORM
         size_t required_size;
         if( !storage_get_blob(NULL, &required_size, "user", "app_key") ) {
             ERR("Approved Public Key not found; using default");
@@ -477,6 +479,7 @@ static bool app_signature_init(jelfLoaderContext_t *ctx,
             ERR("Application Public Key doesn't match approved public key.");
             return false;
         }
+#endif
 
         memcpy(ctx->app_public_key, approved_pub_key, sizeof(uint256_t));
     }
@@ -1185,16 +1188,23 @@ void jelfLoaderFree(jelfLoaderContext_t *ctx) {
 
 #if !ESP_PLATFORM
 /* Returns the transverse hash. To be called from elf2jelf.py */
-jelfLoaderInitLoadRelocateHash(char *fn, int n_exports){
+void jelfLoaderHash(char *fn, char *fn_basename, int n_exports){
+    INFO("Hello\n");
+    sodium_init();
+
     jelfLoaderContext_t ctx_obj = { 0 };
-    jelfLoaderContext_t ctx = &ctx_obj;
+    jelfLoaderContext_t *ctx = &ctx_obj;
     jelfLoaderEnv_t env = { 0 };
+
+    // dummy env
     env.exported_size = n_exports;
     env.exported = calloc(n_exports, sizeof(void*));
 
-    ESP_LOGI(TAG, "jelfLoader; Initializing");
-    /* fn_basename is passed in for signature checking */
-    ctx = jelfLoaderInit(program, fn_basename, &env);
+    FILE *fd = fopen(fn, "rb");
+    INFO("Hey\n");
+
+    ctx = jelfLoaderInit(fd, fn_basename, &env);
+    INFO("Hey\n");
     jelfLoaderLoad(ctx);
     jelfLoaderRelocate(ctx);
 }
